@@ -322,3 +322,5 @@ services:
 
 volumes:
   postgres-db-volume:
+  postgres-dwh-volume:
+  metabase-data:
