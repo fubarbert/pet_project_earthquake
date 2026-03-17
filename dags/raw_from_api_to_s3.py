@@ -7,7 +7,7 @@ from airflow.operators.empty import EmptyOperator
 from airflow.operators.python import PythonOperator
 
 # Конфигурация DAG
-OWNER = "a.chernov"
+OWNER = "fubarbert"
 DAG_ID = "raw_from_api_to_s3"
 
 # Используемые таблицы в DAG
