@@ -78,6 +78,14 @@ def fetch_and_transfer_raw_data_to_ods_pg(**context):
 
         con.execute("ATTACH '' AS dwh_postgres_db (TYPE postgres, SECRET dwh_postgres)")
 
+        # Удаляем данные за этот день перед вставкой (идемпотентность)
+        con.execute(f"""
+            DELETE FROM dwh_postgres_db.{SCHEMA}.{TARGET_TABLE}
+            WHERE time >= '{start_date}'
+            AND time < '{end_date}'
+        """)
+
+        # Вставляем данные из S3
         con.execute(f"""
             INSERT INTO dwh_postgres_db.{SCHEMA}.{TARGET_TABLE}
             (
@@ -88,7 +96,7 @@ def fetch_and_transfer_raw_data_to_ods_pg(**context):
             )
             SELECT
                 time, latitude, longitude, depth, mag,
-                magType        AS mag_type,
+                magType         AS mag_type,
                 nst, gap, dmin, rms, net, id, updated, place, type,
                 horizontalError AS horizontal_error,
                 depthError      AS depth_error,
@@ -104,6 +112,7 @@ def fetch_and_transfer_raw_data_to_ods_pg(**context):
         con.close()
 
     logging.info(f"Download for date success: {start_date}")
+
 
 with DAG(
     dag_id=DAG_ID,
