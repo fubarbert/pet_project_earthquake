@@ -3,6 +3,7 @@ import logging
 import duckdb
 import pendulum
 import psycopg2
+from psycopg2.extras import execute_values
 from airflow import DAG
 from airflow.models import Variable
 from airflow.operators.empty import EmptyOperator
@@ -79,41 +80,22 @@ def create_table_if_not_exists(**context):
 def fetch_and_transfer_raw_data_to_ods_pg(**context):
     access_key = Variable.get("access_key").replace("'", "''")
     secret_key = Variable.get("secret_key").replace("'", "''")
-    password = Variable.get("pg_password").replace("'", "''")
+    password = Variable.get("pg_password")
 
     start_date, end_date = get_dates(**context)
     logging.info(f"Start load for dates: {start_date}/{end_date}")
 
+    # Читаем из S3 через DuckDB в pandas DataFrame
     con = duckdb.connect()
     try:
-        con.sql("SET TIMEZONE='UTC'")
         con.sql("INSTALL httpfs")
         con.sql("LOAD httpfs")
-        con.sql("INSTALL postgres")
-        con.sql("LOAD postgres")
         con.sql("SET s3_url_style = 'path'")
         con.sql("SET s3_endpoint = 'minio:9000'")
         con.sql(f"SET s3_access_key_id = '{access_key}'")
         con.sql(f"SET s3_secret_access_key = '{secret_key}'")
         con.sql("SET s3_use_ssl = FALSE")
-        con.sql(f"""
-            CREATE SECRET dwh_postgres (
-                TYPE postgres,
-                HOST 'postgres_dwh',
-                PORT 5432,
-                DATABASE postgres,
-                USER 'postgres',
-                PASSWORD '{password}'
-            )
-        """)
-        con.sql("ATTACH '' AS dwh_postgres_db (TYPE postgres, SECRET dwh_postgres)")
-        con.sql(f"""
-            INSERT INTO dwh_postgres_db.{SCHEMA}.{TARGET_TABLE} (
-                time, latitude, longitude, depth, mag, mag_type,
-                nst, gap, dmin, rms, net, id, updated, place, type,
-                horizontal_error, depth_error, mag_error, mag_nst,
-                status, location_source, mag_source
-            )
+        df = con.sql(f"""
             SELECT
                 time, latitude, longitude, depth, mag,
                 magType          AS mag_type,
@@ -126,9 +108,32 @@ def fetch_and_transfer_raw_data_to_ods_pg(**context):
                 locationSource   AS location_source,
                 magSource        AS mag_source
             FROM 's3://prod/{LAYER}/{SOURCE}/{start_date}/{start_date}_00-00-00.gz.parquet'
-        """)
+        """).df()
     finally:
         con.close()
+
+    logging.info(f"Rows fetched from S3: {len(df)}")
+
+    # Пишем в PostgreSQL через psycopg2
+    conn = psycopg2.connect(
+        host="postgres_dwh", port=5432,
+        database="postgres", user="postgres", password=password
+    )
+    try:
+        cur = conn.cursor()
+        rows = [tuple(row) for row in df.itertuples(index=False)]
+        execute_values(cur, f"""
+            INSERT INTO {SCHEMA}.{TARGET_TABLE} (
+                time, latitude, longitude, depth, mag, mag_type,
+                nst, gap, dmin, rms, net, id, updated, place, type,
+                horizontal_error, depth_error, mag_error, mag_nst,
+                status, location_source, mag_source
+            ) VALUES %s
+        """, rows)
+        conn.commit()
+        cur.close()
+    finally:
+        conn.close()
 
     logging.info(f"Load for date success: {start_date}")
 
