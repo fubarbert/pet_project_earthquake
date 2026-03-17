@@ -43,7 +43,6 @@ def get_dates(**context) -> tuple[str, str]:
 
 
 def fetch_and_transfer_raw_data_to_ods_pg(**context):
-    """"""
 
     access_key = Variable.get("access_key").replace("'", "''")
     secret_key = Variable.get("secret_key").replace("'", "''")
@@ -51,22 +50,22 @@ def fetch_and_transfer_raw_data_to_ods_pg(**context):
 
     start_date, end_date = get_dates(**context)
     logging.info(f"Start load for dates: {start_date}/{end_date}")
+
     con = duckdb.connect()
 
     try:
-        con.sql(
-            f"""
-            SET TIMEZONE='UTC';
-            INSTALL httpfs;
-            LOAD httpfs;
-            INSTALL postgres;
-            LOAD postgres;
-            SET s3_url_style = 'path';
-            SET s3_endpoint = 'minio:9000';
-            SET s3_access_key_id = '{access_key}';
-            SET s3_secret_access_key = '{secret_key}';
-            SET s3_use_ssl = FALSE;
+        con.execute("SET TIMEZONE='UTC'")
+        con.execute("INSTALL httpfs")
+        con.execute("LOAD httpfs")
+        con.execute("INSTALL postgres")
+        con.execute("LOAD postgres")
+        con.execute("SET s3_url_style = 'path'")
+        con.execute("SET s3_endpoint = 'minio:9000'")
+        con.execute(f"SET s3_access_key_id = '{access_key}'")
+        con.execute(f"SET s3_secret_access_key = '{secret_key}'")
+        con.execute("SET s3_use_ssl = FALSE")
 
+        con.execute(f"""
             CREATE SECRET dwh_postgres (
                 TYPE postgres,
                 HOST 'postgres_dwh',
@@ -74,66 +73,37 @@ def fetch_and_transfer_raw_data_to_ods_pg(**context):
                 DATABASE postgres,
                 USER 'postgres',
                 PASSWORD '{password}'
-            );
+            )
+        """)
 
-            ATTACH '' AS dwh_postgres_db (TYPE postgres, SECRET dwh_postgres);
+        con.execute("ATTACH '' AS dwh_postgres_db (TYPE postgres, SECRET dwh_postgres)")
 
+        con.execute(f"""
             INSERT INTO dwh_postgres_db.{SCHEMA}.{TARGET_TABLE}
             (
-                time,
-                latitude,
-                longitude,
-                depth,
-                mag,
-                mag_type,
-                nst,
-                gap,
-                dmin,
-                rms,
-                net,
-                id,
-                updated,
-                place,
-                type,
-                horizontal_error,
-                depth_error,
-                mag_error,
-                mag_nst,
-                status,
-                location_source,
-                mag_source
+                time, latitude, longitude, depth, mag, mag_type,
+                nst, gap, dmin, rms, net, id, updated, place, type,
+                horizontal_error, depth_error, mag_error, mag_nst,
+                status, location_source, mag_source
             )
             SELECT
-                time,
-                latitude,
-                longitude,
-                depth,
-                mag,
-                magType AS mag_type,
-                nst,
-                gap,
-                dmin,
-                rms,
-                net,
-                id,
-                updated,
-                place,
-                type,
+                time, latitude, longitude, depth, mag,
+                magType        AS mag_type,
+                nst, gap, dmin, rms, net, id, updated, place, type,
                 horizontalError AS horizontal_error,
-                depthError AS depth_error,
-                magError AS mag_error,
-                magNst AS mag_nst,
+                depthError      AS depth_error,
+                magError        AS mag_error,
+                magNst          AS mag_nst,
                 status,
-                locationSource AS location_source,
-                magSource AS mag_source
-            FROM 's3://prod/{LAYER}/{SOURCE}/{start_date}/{start_date}_00-00-00.gz.parquet';
-            """,
-        )
+                locationSource  AS location_source,
+                magSource       AS mag_source
+            FROM 's3://prod/{LAYER}/{SOURCE}/{start_date}/{start_date}_00-00-00.gz.parquet'
+        """)
+
     finally:
         con.close()
 
     logging.info(f"Download for date success: {start_date}")
-
 
 with DAG(
     dag_id=DAG_ID,
