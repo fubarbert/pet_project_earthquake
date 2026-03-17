@@ -52,27 +52,23 @@ def fetch_and_transfer_api_data_to_s3(**context):
     con = duckdb.connect()
 
     try:
-        con.sql(
-            f"""
-            SET TIMEZONE='UTC';
-            INSTALL httpfs;
-            LOAD httpfs;
-            SET s3_url_style = 'path';
-            SET s3_endpoint = 'minio:9000';
-            SET s3_access_key_id = '{access_key}';
-            SET s3_secret_access_key = '{secret_key}';
-            SET s3_use_ssl = FALSE;
-
-            COPY
-            (
-                SELECT
-                    *
-                FROM
-                    read_csv_auto('https://earthquake.usgs.gov/fdsnws/event/1/query?format=csv&starttime={start_date}&endtime={end_date}') AS res
-            ) TO 's3://prod/{LAYER}/{SOURCE}/{start_date}/{start_date}_00-00-00.gz.parquet';
-
-            """,
-        )
+        try:
+            con.sql("SET TIMEZONE='UTC'")
+            con.sql("INSTALL httpfs")
+            con.sql("LOAD httpfs")
+            con.sql("SET s3_url_style = 'path'")
+            con.sql("SET s3_endpoint = 'minio:9000'")
+            con.sql(f"SET s3_access_key_id = '{access_key}'")
+            con.sql(f"SET s3_secret_access_key = '{secret_key}'")
+            con.sql("SET s3_use_ssl = FALSE")
+            con.sql(f"""
+                   COPY (
+                       SELECT *
+                       FROM read_csv_auto(
+                           'https://earthquake.usgs.gov/fdsnws/event/1/query?format=csv&starttime={start_date}&endtime={end_date}'
+                       )
+                   ) TO 's3://prod/{LAYER}/{SOURCE}/{start_date}/{start_date}_00-00-00.gz.parquet'
+               """)
     finally:
         con.close()
 
