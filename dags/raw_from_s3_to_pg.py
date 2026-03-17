@@ -121,7 +121,7 @@ def fetch_and_transfer_raw_data_to_ods_pg(**context):
     )
     try:
         cur = conn.cursor()
-        rows = [tuple(row) for row in df.itertuples(index=False)]
+        rows = [tuple(None if str(v) == 'nan' else v.item() if hasattr(v, 'item') else v for v in row) for row in df.itertuples(index=False)]
         execute_values(cur, f"""
             INSERT INTO {SCHEMA}.{TARGET_TABLE} (
                 time, latitude, longitude, depth, mag, mag_type,
