@@ -73,6 +73,7 @@ def fetch_and_transfer_api_data_to_s3(**context):
 
             """,
         )
+    finally:
         con.close()
 
     logging.info(f"Download for date success: {start_date}")
